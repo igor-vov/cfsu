@@ -1,6 +1,35 @@
 # CloudFront Signed Resource 통합 연동 규격서
 
-본 문서는 AWS CloudFront의 **Signed URL(개별 파일 접근)** 및 **Signed Cookie(스트리밍/폴더 접근)** 기능을 귀사의 서비스에 연동하기 위한 통합 인터페이스 명세 및 가이드입니다.
+본 문서는 AWS CloudFront의 **Signed URL/Cookie (개별 파일, 스트리밍/폴더 접근)** 기능을 귀사의 서비스에 연동하기 위한 통합 인터페이스 명세 및 가이드입니다.
+
+연동에 앞서 가장 먼저 키페어를 만들어야 합니다.
+
+## 보안 키 페어 생성
+
+### openssl 을 사용해서 private key(URL생성) 와 public key(URL검증) 를 생성할 수 있습니다.
+
+```ssh
+openssl genrsa -out private_key.pem 2048
+openssl rsa -pubout -in private_key.pem -out public_key.pem
+```
+
+## CloudFront Signed URL/Cookie용 키 등록
+
+서명된 URL을 만들기 위해 **퍼블릭 키(.pem)**를 업로드하고 **Key Group**을 생성하는 곳입니다.
+
+* **바로가기 URL:**
+**[CloudFront 퍼블릭 키 등록 페이지 바로가기](https://www.google.com/search?q=https://us-east-1.console.aws.amazon.com/cloudfront/v4/home%3Fregion%3Dus-east-1%23/publickey)**
+*(CloudFront는 글로벌 서비스이므로 리전 상관없이 위 링크로 접속됩니다)*
+* **메뉴 이동 경로:**
+AWS 콘솔 접속 > **CloudFront** > 왼쪽 메뉴의 **공용 키(Public keys)** > **공용 키 생성(Create public key)**
+
+#### 등록 후 필수 절차
+
+키를 등록한 후에는 반드시 **[키 그룹(Key Groups)](https://www.google.com/search?q=https://us-east-1.console.aws.amazon.com/cloudfront/v4/home%3Fregion%3Dus-east-1%23/keygrouplist)** 메뉴로 이동하여, 방금 등록한 키를 포함하는 **그룹**을 만들어야 CloudFront 배포(Distribution) 설정에서 선택할 수 있습니다.
+
+** 참고 (개발 시 주의사항):**
+CloudFront Signed URL을 구현하실 때는 **1번 메뉴**에서 발급된 **`Key Pair ID` (예: K2JCJMDEHXQW...)**를 코드의 환경변수(`key_pair_id`)에 넣어서 사용해야 합니다.
+
 
 ## 1. 아키텍처 개요
 
