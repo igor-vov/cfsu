@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudFront Signed Token Generator (Fixed)</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsrsasign/10.9.0/jsrsasign-all-min.js"></script>
+
+    <style>
+        :root { --primary-color: #4361ee; --secondary-bg: #f8f9fa; }
+        body { background-color: #edf2f7; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding: 30px 0; }
+        .main-card { border: none; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border-radius: 16px; overflow: hidden; background: #fff; }
+        .card-header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 25px 30px; }
+        .card-body { padding: 30px; }
+        .form-label { font-weight: 600; color: #2d3748; font-size: 0.9rem; margin-bottom: 8px; }
+        .form-control { padding: 12px; border-radius: 8px; border: 1px solid #cbd5e0; font-size: 0.95rem; }
+        .form-control:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.15); }
+        .code-area { font-family: 'Consolas', monospace; font-size: 0.85rem; background-color: #2d3748; color: #a0aec0; border-radius: 8px; }
+        
+        /* Result Box Style */
+        .result-container { background: #1a202c; border-radius: 10px; padding: 20px; position: relative; margin-top: 10px; }
+        .result-title { color: #718096; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; font-weight: bold; }
+        .result-content { color: #48bb78; font-family: 'Consolas', monospace; word-break: break-all; white-space: pre-wrap; font-size: 0.9rem; max-height: 150px; overflow-y: auto; }
+        .btn-copy { position: absolute; top: 15px; right: 15px; background: rgba(255,255,255,0.1); color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; transition: 0.2s; }
+        .btn-copy:hover { background: rgba(255,255,255,0.2); }
+
+        .nav-pills .nav-link { border-radius: 8px; font-weight: 600; padding: 10px 20px; color: #4a5568; }
+        .nav-pills .nav-link.active { background-color: var(--primary-color); color: #fff; }
+        
+        .mode-badge { font-size: 0.75rem; padding: 4px 8px; border-radius: 4px; background: #e2e8f0; color: #4a5568; margin-left: 8px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="main-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div>
+                        <h4 class="mb-1 fw-bold"><i class="fa-solid fa-key text-primary me-2"></i>CloudFront Signer</h4>
+                        <p class="text-muted mb-0 small">Securely generate signed URLs and Cookies in your browser</p>
+                    </div>
+                    <div>
+                        <span id="status" class="badge bg-secondary">Ready</span>
+                    </div>
+                </div>
+
+                <div class="card-body">
+                    <div class="alert alert-warning d-none" id="libError">
+                        <i class="fa-solid fa-triangle-exclamation me-2"></i> 암호화 라이브러리(jsrsasign) 로드 실패. 인터넷 연결을 확인하세요.
+                    </div>
+
+                    <div class="row g-4">
+                        <div class="col-md-5 border-end">
+                            <h5 class="mb-4 text-dark fw-bold">1. Configuration</h5>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Key Pair ID <span class="text-danger">*</span></label>
+                                <input type="text" id="keyPairId" class="form-control" placeholder="Ex: K2JCJMDEHXQW5F">
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Private Key (PEM) <span class="text-danger">*</span></label>
+                                <textarea id="privateKey" class="form-control code-area text-light" rows="5" placeholder="-----BEGIN RSA PRIVATE KEY-----..."></textarea>
+                            </div>
+
+                            <hr class="my-4 text-muted">
+
+                            <div class="mb-3">
+                                <label class="form-label d-flex justify-content-between">
+                                    <span>Resource URL <span class="text-danger">*</span></span>
+                                    <span class="text-primary cursor-pointer" style="cursor:pointer; font-size:0.8rem;" onclick="appendWildcard()">
+                                        <i class="fa-solid fa-magic"></i> Add Wildcard (*)
+                                    </span>
+                                </label>
+                                <input type="text" id="resourceUrl" class="form-control" placeholder="https://cdn.example.com/videos/*">
+                                <div class="form-text text-muted" style="font-size: 0.8rem;">
+                                    <i class="fa-solid fa-circle-info me-1"></i> Cookie 방식은 끝에 <code>/*</code>를 붙여야 폴더 내 모든 파일에 접근 가능합니다.
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-6">
+                                    <label class="form-label">Expiry (Sec)</label>
+                                    <input type="number" id="expiry" class="form-control" value="3600">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">Client IP (Opt)</label>
+                                    <input type="text" id="clientIp" class="form-control" placeholder="0.0.0.0/0">
+                                </div>
+                            </div>
+
+                            <button class="btn btn-primary w-100 mt-4 py-2 fw-bold" onclick="generate()">
+                                <i class="fa-solid fa-fingerprint me-2"></i> Generate Signature
+                            </button>
+                        </div>
+
+                        <div class="col-md-7">
+                            <h5 class="mb-3 text-dark fw-bold">2. Generated Output</h5>
+                            
+                            <ul class="nav nav-pills mb-3" id="pills-tab" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" id="pills-url-tab" data-bs-toggle="pill" data-bs-target="#pills-url" type="button">Signed URL</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="pills-cookie-tab" data-bs-toggle="pill" data-bs-target="#pills-cookie" type="button">Signed Cookie</button>
+                                </li>
+                            </ul>
+
+                            <div class="tab-content" id="pills-tabContent">
+                                <div class="tab-pane fade show active" id="pills-url">
+                                    <div class="result-title">Full Signed URL</div>
+                                    <div class="result-container">
+                                        <button class="btn-copy" onclick="copyToClipboard('resUrl')">Copy</button>
+                                        <div id="resUrl" class="result-content text-muted">Waiting for generation...</div>
+                                    </div>
+                                    
+                                    <div class="result-title mt-4">Test Command (cURL)</div>
+                                    <div class="result-container">
+                                        <button class="btn-copy" onclick="copyToClipboard('resCurlUrl')">Copy</button>
+                                        <div id="resCurlUrl" class="result-content text-muted"># cURL command here</div>
+                                    </div>
+                                </div>
+
+                                <div class="tab-pane fade" id="pills-cookie">
+                                    <div class="alert alert-info py-2 small">
+                                        <i class="fa-solid fa-check-circle me-1"></i> Cookie 방식은 3개의 쿠키(Policy, Signature, Key-Pair-Id)가 모두 필요합니다.
+                                    </div>
+
+                                    <div class="result-title">Set-Cookie Headers (Server Response)</div>
+                                    <div class="result-container">
+                                        <button class="btn-copy" onclick="copyToClipboard('resCookieHeaders')">Copy</button>
+                                        <div id="resCookieHeaders" class="result-content text-muted">Waiting for generation...</div>
+                                    </div>
+
+                                    <div class="result-title mt-4">Test Command (cURL with Cookies)</div>
+                                    <div class="result-container">
+                                        <button class="btn-copy" onclick="copyToClipboard('resCurlCookie')">Copy</button>
+                                        <div id="resCurlCookie" class="result-content text-muted"># cURL command here</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-4 pt-3 border-top">
+                                <div class="d-flex justify-content-between cursor-pointer" data-bs-toggle="collapse" data-bs-target="#debugArea">
+                                    <span class="text-muted small fw-bold">Debugging Info (Policy JSON)</span>
+                                    <i class="fa-solid fa-chevron-down text-muted"></i>
+                                </div>
+                                <div class="collapse mt-2" id="debugArea">
+                                    <textarea id="debugPolicy" class="form-control code-area bg-light text-dark border" rows="4" readonly></textarea>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    // 1. 라이브러리 로드 확인
+    window.addEventListener('load', function() {
+        if (typeof KJUR === 'undefined') {
+            document.getElementById('libError').classList.remove('d-none');
+            document.querySelector('button[onclick="generate()"]').disabled = true;
+        }
+    });
+
+    // 2. CloudFront Safe Base64 (+ -> -, = -> _, / -> ~)
+    function toCloudFrontBase64(str) {
+        // UTF-8 Handling: btoa alone fails on unicode. Use encodeURIComponent trick.
+        const b64 = btoa(unescape(encodeURIComponent(str)));
+        return b64.replace(/\+/g, '-').replace(/\=/g, '_').replace(/\//g, '~');
+    }
+    
+    // Hex to Base64 (Binary safe)
+    function hexToCloudFrontBase64(hex) {
+        let str = "";
+        for (let i = 0; i < hex.length; i += 2) {
+            str += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
+        }
+        const b64 = btoa(str);
+        return b64.replace(/\+/g, '-').replace(/\=/g, '_').replace(/\//g, '~');
+    }
+
+    // 3. 메인 생성 함수
+    function generate() {
+        // 입력값 취득
+        const keyId = document.getElementById('keyPairId').value.trim();
+        const privKey = document.getElementById('privateKey').value.trim();
+        let url = document.getElementById('resourceUrl').value.trim();
+        const expiry = parseInt(document.getElementById('expiry').value) || 3600;
+        const ip = document.getElementById('clientIp').value.trim();
+
+        // 검증
+        if (!keyId || !privKey || !url) {
+            alert("필수 입력값(Key Pair ID, Private Key, URL)을 모두 입력해주세요.");
+            return;
+        }
+
+        try {
+            // Policy JSON 생성
+            const epoch = Math.floor(Date.now() / 1000) + expiry;
+            
+            const policyObj = {
+                "Statement": [{
+                    "Resource": url,
+                    "Condition": {
+                        "DateLessThan": { "AWS:EpochTime": epoch }
+                    }
+                }]
+            };
+
+            if (ip) {
+                policyObj.Statement[0].Condition["IpAddress"] = { "AWS:SourceIp": ip };
+            }
+
+            // 공백 없는 문자열로 변환 (서명 대상)
+            const policyStr = JSON.stringify(policyObj);
+            document.getElementById('debugPolicy').value = JSON.stringify(policyObj, null, 2);
+
+            // 서명 (RSA-SHA1)
+            const sig = new KJUR.crypto.Signature({"alg": "SHA1withRSA"});
+            sig.init(privKey);
+            sig.updateString(policyStr);
+            const sigHex = sig.sign();
+
+            // 인코딩
+            const policyB64 = toCloudFrontBase64(policyStr);
+            const signatureB64 = hexToCloudFrontBase64(sigHex);
+
+            // [결과 1] Signed URL
+            const sep = url.includes('?') ? '&' : '?';
+            const fullUrl = `${url}${sep}Policy=${policyB64}&Signature=${signatureB64}&Key-Pair-Id=${keyId}`;
+            
+            document.getElementById('resUrl').textContent = fullUrl;
+            document.getElementById('resCurlUrl').textContent = `curl -v "${fullUrl}" -o /dev/null`;
+
+            // [결과 2] Signed Cookie
+            // 쿠키는 도메인 설정이 중요하므로 예시 도메인을 포함시킴
+            const domainExample = ".example.com"; 
+            
+            // 헤더 출력용
+            const headers = 
+`Set-Cookie: CloudFront-Policy=${policyB64}; Domain=${domainExample}; Path=/; Secure; HttpOnly
+Set-Cookie: CloudFront-Signature=${signatureB64}; Domain=${domainExample}; Path=/; Secure; HttpOnly
+Set-Cookie: CloudFront-Key-Pair-Id=${keyId}; Domain=${domainExample}; Path=/; Secure; HttpOnly`;
+
+            document.getElementById('resCookieHeaders').textContent = headers;
+
+            // cURL 출력용 (원본 URL + 쿠키 헤더)
+            const cleanUrl = url.split('?')[0]; // 쿠키 사용 시 쿼리 파라미터 제외 권장
+            const cookieStr = `CloudFront-Policy=${policyB64}; CloudFront-Signature=${signatureB64}; CloudFront-Key-Pair-Id=${keyId}`;
+            
+            document.getElementById('resCurlCookie').textContent = `curl -v "${cleanUrl}" \\
+  --cookie "${cookieStr}" \\
+  -o /dev/null`;
+
+            // 성공 표시
+            const badge = document.getElementById('status');
+            badge.className = "badge bg-success";
+            badge.innerText = "Generated!";
+
+        } catch (e) {
+            console.error(e);
+            alert("생성 중 오류 발생: " + e.message + "\nPrivate Key 형식을 확인해주세요.");
+        }
+    }
+
+    function appendWildcard() {
+        const input = document.getElementById('resourceUrl');
+        let val = input.value.trim();
+        if (val && !val.endsWith('*')) {
+            if (!val.endsWith('/')) val += '/';
+            input.value = val + '*';
+        }
+    }
+
+    function copyToClipboard(id) {
+        const text = document.getElementById(id).textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.querySelector(`button[onclick="copyToClipboard('${id}')"]`);
+            const original = btn.innerText;
+            btn.innerText = "Copied!";
+            setTimeout(() => btn.innerText = original, 1500);
+        });
+    }
+</script>
+
+</body>
+</html>
