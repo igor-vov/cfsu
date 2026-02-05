@@ -129,6 +129,13 @@ Set-Cookie: CloudFront-Key-Pair-Id=...; Domain=.example.com; Path=/; Secure; Htt
 
 ## 3. Backend 구현 예제 (Python/Flask)
 
+필수 라이브러리 설치
+서명 생성에 필요한 암호화 라이브러리와 AWS SDK를 설치해야 합니다.
+
+```bash
+pip install cryptography boto3 Flask requests
+```
+
 URL 반환과 Cookie 설정을 단일 엔드포인트에서 처리하는 예제입니다.
 
 ```python
